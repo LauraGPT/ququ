@@ -163,7 +163,11 @@ class FunASRManager {
       }
     } else {
       // 使用系统Python时，清除可能干扰的嵌入式Python环境变量
-      // 不设置PYTHONHOME和PYTHONPATH，让系统Python使用自己的环境
+      delete env.PYTHONHOME;
+      delete env.PYTHONPATH;
+      delete env.LD_LIBRARY_PATH;
+      delete env.DYLD_LIBRARY_PATH;
+
       if (!this._cachedPythonEnv || this._lastEmbeddedCheck !== isUsingEmbedded) {
         this.logger.info && this.logger.info('构建系统Python环境变量', {
           note: '使用系统Python默认环境',

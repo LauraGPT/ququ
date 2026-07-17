@@ -16,6 +16,7 @@
     "prepare:python:uv": "uv sync && uv run python download_models.py",
     "prepare:python:embedded": "node scripts/prepare-embedded-python.js",
     "prepare:python:info": "node scripts/prepare-embedded-python.js --info",
+    "test:unit": "node --test test/*.test.js",
     "test:python": "node scripts/test-embedded-python.js",
     "test:python:info": "node scripts/test-embedded-python.js --info",
     "prebuild:mac": "npm run prepare:python:embedded && npm run build:renderer",
