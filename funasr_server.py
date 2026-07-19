@@ -43,7 +43,6 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(log_file_path, encoding="utf-8"),
-        logging.StreamHandler(),  # 同时输出到控制台
     ],
 )
 logger = logging.getLogger(__name__)
@@ -53,15 +52,18 @@ logger.info(f"FunASR服务器日志文件: {log_file_path}")
 
 
 @contextlib.contextmanager
-def suppress_stdout():
-    """上下文管理器：临时重定向stdout到devnull，避免FunASR库的非JSON输出干扰IPC通信"""
+def suppress_console_output():
+    """临时重定向 stdout/stderr，避免第三方库输出污染 JSON IPC 通道"""
     old_stdout = sys.stdout
-    devnull = open(os.devnull, "w")
+    old_stderr = sys.stderr
+    devnull = open(os.devnull, "w", encoding="utf-8")
     try:
         sys.stdout = devnull
+        sys.stderr = devnull
         yield
     finally:
         sys.stdout = old_stdout
+        sys.stderr = old_stderr
         devnull.close()
 
 
@@ -102,7 +104,7 @@ class FunASRServer:
         """加载ASR模型"""
         try:
             logger.info("开始加载ASR模型...")
-            with suppress_stdout():
+            with suppress_console_output():
                 from funasr import AutoModel
 
                 self.asr_model = AutoModel(
@@ -121,7 +123,7 @@ class FunASRServer:
         """加载VAD模型"""
         try:
             logger.info("开始加载VAD模型...")
-            with suppress_stdout():
+            with suppress_console_output():
                 from funasr import AutoModel
 
                 self.vad_model = AutoModel(
@@ -146,14 +148,14 @@ class FunASRServer:
 
             # 记录导入时间
             import_start = time.time()
-            with suppress_stdout():
+            with suppress_console_output():
                 from funasr import AutoModel
             import_time = time.time() - import_start
             logger.info(f"FunASR导入耗时: {import_time:.2f}秒")
 
             # 记录模型创建时间
             model_start = time.time()
-            with suppress_stdout():
+            with suppress_console_output():
                 self.punc_model = AutoModel(
                     model="damo/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
                     model_revision="v2.0.4",
@@ -278,18 +280,20 @@ class FunASRServer:
 
             # 执行语音识别
             if default_options["use_vad"]:
-                vad_result = self.vad_model.generate(
-                    input=audio_path, batch_size_s=default_options["batch_size_s"]
-                )
+                with suppress_console_output():
+                    vad_result = self.vad_model.generate(
+                        input=audio_path, batch_size_s=default_options["batch_size_s"]
+                    )
                 logger.info("VAD处理完成")
 
             # 执行ASR识别
-            asr_result = self.asr_model.generate(
-                input=audio_path,
-                batch_size_s=default_options["batch_size_s"],
-                hotword=default_options["hotword"],
-                cache={},
-            )
+            with suppress_console_output():
+                asr_result = self.asr_model.generate(
+                    input=audio_path,
+                    batch_size_s=default_options["batch_size_s"],
+                    hotword=default_options["hotword"],
+                    cache={},
+                )
 
             # 提取识别文本
             if isinstance(asr_result, list) and len(asr_result) > 0:
@@ -306,7 +310,8 @@ class FunASRServer:
             final_text = raw_text
             if default_options["use_punc"] and self.punc_model and raw_text.strip():
                 try:
-                    punc_result = self.punc_model.generate(input=raw_text)
+                    with suppress_console_output():
+                        punc_result = self.punc_model.generate(input=raw_text)
                     if isinstance(punc_result, list) and len(punc_result) > 0:
                         if (
                             isinstance(punc_result[0], dict)
@@ -319,7 +324,8 @@ class FunASRServer:
                 except Exception as e:
                     logger.warning(f"FunASR标点恢复失败，使用原始文本: {str(e)}")
 
-            duration = self._get_audio_duration(audio_path)
+            with suppress_console_output():
+                duration = self._get_audio_duration(audio_path)
             self.transcription_count += 1
 
             result = {
