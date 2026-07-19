@@ -15,6 +15,7 @@ import contextlib
 import io
 import argparse
 import glob
+import threading
 from pathlib import Path
 
 # 设置日志
@@ -51,20 +52,44 @@ logger = logging.getLogger(__name__)
 logger.info(f"FunASR服务器日志文件: {log_file_path}")
 
 
+_console_suppression_lock = threading.RLock()
+_console_suppression_depth = 0
+_console_suppression_stdout = None
+_console_suppression_stderr = None
+_console_suppression_devnull = None
+
+
 @contextlib.contextmanager
 def suppress_console_output():
-    """临时重定向 stdout/stderr，避免第三方库输出污染 JSON IPC 通道"""
-    old_stdout = sys.stdout
-    old_stderr = sys.stderr
-    devnull = open(os.devnull, "w", encoding="utf-8")
+    """临时重定向 stdout/stderr，避免第三方库输出污染 JSON IPC 通道。"""
+    global _console_suppression_depth
+    global _console_suppression_stdout
+    global _console_suppression_stderr
+    global _console_suppression_devnull
+
+    with _console_suppression_lock:
+        if _console_suppression_depth == 0:
+            _console_suppression_stdout = sys.stdout
+            _console_suppression_stderr = sys.stderr
+            _console_suppression_devnull = open(os.devnull, "w", encoding="utf-8")
+            sys.stdout = _console_suppression_devnull
+            sys.stderr = _console_suppression_devnull
+        _console_suppression_depth += 1
+
     try:
-        sys.stdout = devnull
-        sys.stderr = devnull
         yield
     finally:
-        sys.stdout = old_stdout
-        sys.stderr = old_stderr
-        devnull.close()
+        with _console_suppression_lock:
+            _console_suppression_depth -= 1
+            if _console_suppression_depth == 0:
+                sys.stdout = _console_suppression_stdout
+                sys.stderr = _console_suppression_stderr
+                _console_suppression_stdout = None
+                _console_suppression_stderr = None
+                devnull = _console_suppression_devnull
+                _console_suppression_devnull = None
+                if devnull is not None:
+                    devnull.close()
 
 
 class FunASRServer:
